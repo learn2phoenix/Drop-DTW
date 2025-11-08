@@ -1,5 +1,5 @@
 import numpy as np
-from dp.dp_utils import traceback
+from .dp_utils import traceback
 
 
 def drop_dtw(zx_costs, drop_costs, exclusive=True, contiguous=True, return_labels=False):
@@ -198,21 +198,53 @@ def double_drop_dtw(pairwise_zx_costs, x_drop_costs, z_drop_costs, contiguous=Tr
     cur_state = D[K, N, :].argmin()
     min_cost = D[K, N, cur_state]
             
-    # unroll path
-    path = []
-    zi, xi = K, N
-    x_dropped = [N] if cur_state in [1, 3] else []
-    z_dropped = [K] if cur_state in [2, 3] else []
-    while not (zi == 0 and xi == 0):
-        path.append((zi, xi))
-        zi_prev, xi_prev, prev_state = P[zi, xi, cur_state]
-        if prev_state in [1, 3]:
-            x_dropped.append(xi_prev)
-        if prev_state in [2, 3]:
-            z_dropped.append(zi_prev)
-        zi, xi, cur_state = zi_prev, xi_prev, prev_state
+    # # unroll path
+    # path = []
+    # zi, xi = K, N
+    # x_dropped = [N] if cur_state in [1, 3] else []
+    # z_dropped = [K] if cur_state in [2, 3] else []
+    # while not (zi == 0 and xi == 0):
+    #     path.append((zi, xi))
+    #     zi_prev, xi_prev, prev_state = P[zi, xi, cur_state]
+    #     if prev_state in [1, 3]:
+    #         x_dropped.append(xi_prev)
+    #     if prev_state in [2, 3]:
+    #         z_dropped.append(zi_prev)
+    #     zi, xi, cur_state = zi_prev, xi_prev, prev_state
 
-    return min_cost, path, x_dropped, z_dropped
+    # return min_cost, path, x_dropped, z_dropped
+    
+    # --- MODIFIED TRACEBACK LOGIC ---
+    # Backtrack the solution to create a label array
+    zi, xi = K, N
+    labels = np.zeros(N, dtype=int)
+    drops_z_indices = []
+    
+    while not (zi == 0 and xi == 0):
+        # Get the previous position and state from the path matrix
+        zi_prev, xi_prev, prev_state = P[zi, xi, cur_state]
+
+        # Check the current state *before* moving to the previous one
+        if cur_state == 0: # Match (zx)
+            if xi > 0:
+                labels[xi - 1] = zi
+        elif cur_state == 2: # z-drop (-x)
+            if zi > 0:
+                drops_z_indices.append(zi - 1)
+        elif cur_state == 3: # Double drop (--)
+            # We need to know if this state was entered by dropping z or x
+            if zi > 0 and zi_prev == zi - 1 and xi_prev == xi: # Came from top, so zi was dropped
+                drops_z_indices.append(zi - 1)
+        
+        # Move to the previous step for the next iteration
+        zi, xi, cur_state = zi_prev, xi_prev, prev_state
+    
+    # Post-process the dropped z indices (remove duplicates and sort)
+    drops_z_indices = sorted(list(set(drops_z_indices)))
+    
+    # Return the clear and useful labels array, the score, and the new drops_z list
+    return min_cost, labels, drops_z_indices
+
 
 
 def dtw(dist):
@@ -418,7 +450,7 @@ def crosstask_dp(cost_matrix, exactly_one=True, bg_cost=0):
                     opt_value = Lt[j]
 
             if s!=0:
-           	    L[t,k] = opt_value + cost_matrix[t-1][s-1]
+                L[t,k] = opt_value + cost_matrix[t-1][s-1]
             else:
                 L[t,k] = opt_value + bg_cost
             P[t,k] = opt_label
